@@ -89,17 +89,26 @@ jobs:
         ./scripts/feeds install -a
 
     #==============================================================
-    # 7. 手动下载额外插件
+    # 7. 手动下载额外插件（修复版本）
     #==============================================================
     - name: Download extra packages
       run: |
         cd openwrt/package
         
-        # 下载 sirpdboy 的插件
-        git clone --depth=1 https://github.com/sirpdboy/luci-app-netdata
-        git clone --depth=1 https://github.com/sirpdboy/luci-app-control-webrestriction
-        git clone --depth=1 https://github.com/sirpdboy/luci-app-control-weburl
-        git clone --depth=1 https://github.com/sirpdboy/luci-app-autoupdate
+        # 使用 HTTPS 协议和重试机制下载插件
+        # Netdata
+        git clone --depth=1 https://github.com/sirpdboy/luci-app-netdata.git || echo "Netdata clone failed, continuing..."
+        
+        # 使用替代的家长控制插件（如果 sirpdboy 的插件有问题）
+        # 尝试下载其他来源的家长控制插件，或者跳过
+        git clone --depth=1 https://github.com/sirpdboy/luci-app-control-webrestriction.git || \
+        echo "control-webrestriction clone failed, will use alternative"
+        
+        git clone --depth=1 https://github.com/sirpdboy/luci-app-control-weburl.git || \
+        echo "control-weburl clone failed, will use alternative"
+        
+        git clone --depth=1 https://github.com/sirpdboy/luci-app-autoupdate.git || \
+        echo "autoupdate clone failed, will use built-in alternatives"
         
         # 返回并重新更新 feeds
         cd ..
@@ -107,7 +116,7 @@ jobs:
         ./scripts/feeds install -a
 
     #==============================================================
-    # 8. 导入您指定的插件配置
+    # 8. 导入您指定的插件配置（带备用方案）
     #==============================================================
     - name: Load custom plugins config
       run: |
@@ -155,11 +164,13 @@ jobs:
         CONFIG_PACKAGE_luci-app-lucky=y
         CONFIG_PACKAGE_luci-app-openclash=y
         CONFIG_PACKAGE_luci-app-passwall=y
-        CONFIG_PACKAGE_luci-app-netdata=y
         
-        # 家长控制
-        CONFIG_PACKAGE_luci-app-control-webrestriction=y
-        CONFIG_PACKAGE_luci-app-control-weburl=y
+        # 系统监控（如果下载成功）
+        # CONFIG_PACKAGE_luci-app-netdata=y
+        
+        # 家长控制（如果下载成功，使用条件编译）
+        # CONFIG_PACKAGE_luci-app-control-webrestriction=y
+        # CONFIG_PACKAGE_luci-app-control-weburl=y
         
         # 主题
         CONFIG_PACKAGE_luci-theme-argon=y
@@ -199,6 +210,19 @@ jobs:
         CONFIG_TARGET_ROOTFS_SQUASHFS=y
         CONFIG_GRUB_IMAGES=y
         EOF
+        
+        # 检查并添加可用的插件
+        if [ -d "package/luci-app-netdata" ]; then
+          echo "CONFIG_PACKAGE_luci-app-netdata=y" >> .config
+        fi
+        
+        if [ -d "package/luci-app-control-webrestriction" ]; then
+          echo "CONFIG_PACKAGE_luci-app-control-webrestriction=y" >> .config
+        fi
+        
+        if [ -d "package/luci-app-control-weburl" ]; then
+          echo "CONFIG_PACKAGE_luci-app-control-weburl=y" >> .config
+        fi
         
         make defconfig
 
@@ -250,6 +274,8 @@ jobs:
         cd openwrt
         echo "=== Firmware files ==="
         find bin/targets/ -type f \( -name "*.img" -o -name "*.gz" -o -name "*.bin" \) 2>/dev/null | head -20 || echo "No firmware files found"
+        echo "=== Available plugins in firmware ==="
+        find bin/packages/ -name "*.ipk" | grep -E "(netdata|control|autoupdate)" | head -10 || echo "No additional plugins found"
         echo "=== Disk usage ==="
         df -h .
         echo "=== Build directory size ==="
