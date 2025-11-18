@@ -1,4 +1,4 @@
-name: Build-OpenWrt-24.10.4
+name: Build-OpenWrt-24.10.4-Custom
 
 on:
   workflow_dispatch:
@@ -52,19 +52,35 @@ jobs:
         git clone --depth=1 https://github.com/openwrt/openwrt.git -b v24.10.4 openwrt
 
     #==============================================================
-    # 4. 预下载工具链
+    # 4. 添加必要的第三方插件源
+    #==============================================================
+    - name: Add third-party feeds
+      run: |
+        cd openwrt
+        
+        # 添加必要的第三方源
+        cat >> feeds.conf.default << "EOF"
+        src-git openclash https://github.com/vernesong/OpenClash;master
+        src-git passwall https://github.com/xiaorouji/openwrt-passwall;main
+        src-git passwall_packages https://github.com/xiaorouji/openwrt-passwall-packages;main
+        src-git smartdns https://github.com/pymumu/smartdns;master
+        src-git argon https://github.com/jerrykuku/luci-theme-argon;master
+        src-git ddnsgo https://github.com/sirpdboy/luci-app-ddns-go;main
+        src-git lucky https://github.com/gdy666/luci-app-lucky;main
+        EOF
+
+    #==============================================================
+    # 5. 预下载工具链
     #==============================================================
     - name: Pre-download toolchain
       run: |
         cd openwrt
         ./scripts/feeds update base
         ./scripts/feeds install base
-        
-        # 使用更稳健的方式预下载
         make tools/tar/compile -j1 V=sc || echo "Pre-download completed with warnings"
 
     #==============================================================
-    # 5. 更新完整 feeds
+    # 6. 更新完整 feeds
     #==============================================================
     - name: Update Feeds
       run: |
@@ -73,19 +89,27 @@ jobs:
         ./scripts/feeds install -a
 
     #==============================================================
-    # 6. 安装基本软件包
+    # 7. 手动下载额外插件
     #==============================================================
-    - name: Install basic packages manually
+    - name: Download extra packages
       run: |
         cd openwrt/package
-        git clone --depth=1 https://github.com/jerrykuku/luci-theme-argon
-        git clone --depth=1 https://github.com/jerrykuku/luci-app-argon-config
-        git clone --depth=1 https://github.com/sirpdboy/luci-app-ddns-go
+        
+        # 下载 sirpdboy 的插件
+        git clone --depth=1 https://github.com/sirpdboy/luci-app-netdata
+        git clone --depth=1 https://github.com/sirpdboy/luci-app-control-webrestriction
+        git clone --depth=1 https://github.com/sirpdboy/luci-app-control-weburl
+        git clone --depth=1 https://github.com/sirpdboy/luci-app-autoupdate
+        
+        # 返回并重新更新 feeds
+        cd ..
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
 
     #==============================================================
-    # 7. 导入配置并运行 defconfig
+    # 8. 导入您指定的插件配置
     #==============================================================
-    - name: Load config and defconfig
+    - name: Load custom plugins config
       run: |
         cd openwrt
         cat > .config << "EOF"
@@ -93,46 +117,104 @@ jobs:
         CONFIG_TARGET_x86_64=y
         CONFIG_TARGET_x86_64_DEVICE_generic=y
 
+        #================================
         # 基本系统
+        #================================
         CONFIG_PACKAGE_luci=y
         CONFIG_PACKAGE_luci-base=y
         CONFIG_PACKAGE_luci-compat=y
         CONFIG_LUCI_LANG_zh_Hans=y
 
-        # 基本插件
-        CONFIG_PACKAGE_luci-app-upnp=y
+        #================================
+        # 您指定的插件
+        #================================
+        # 系统工具
+        CONFIG_PACKAGE_luci-app-attendedsysupgrade=y
+        CONFIG_PACKAGE_luci-app-autoupdate=y
+        CONFIG_PACKAGE_luci-app-package-manager=y
         CONFIG_PACKAGE_luci-app-ttyd=y
-
+        CONFIG_PACKAGE_luci-app-wol=y
+        
+        # 网络服务
+        CONFIG_PACKAGE_luci-app-upnp=y
+        CONFIG_PACKAGE_luci-app-vsftpd=y
+        CONFIG_PACKAGE_luci-app-zerotier=y
+        CONFIG_PACKAGE_luci-app-firewall=y
+        
+        # 网络优化
+        CONFIG_PACKAGE_luci-app-turboacc=y
+        
+        # DNS 和广告过滤
+        CONFIG_PACKAGE_luci-app-adguardhome=y
+        CONFIG_PACKAGE_luci-app-smartdns=y
+        
+        # DDNS
+        CONFIG_PACKAGE_luci-app-ddns-go=y
+        
+        # 网络工具
+        CONFIG_PACKAGE_luci-app-lucky=y
+        CONFIG_PACKAGE_luci-app-openclash=y
+        CONFIG_PACKAGE_luci-app-passwall=y
+        CONFIG_PACKAGE_luci-app-netdata=y
+        
+        # 家长控制
+        CONFIG_PACKAGE_luci-app-control-webrestriction=y
+        CONFIG_PACKAGE_luci-app-control-weburl=y
+        
         # 主题
         CONFIG_PACKAGE_luci-theme-argon=y
+        CONFIG_PACKAGE_luci-app-argon-config=y
 
-        # 启用 ccache
+        #================================
+        # PassWall 组件（根据需要选择）
+        #================================
+        CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Shadowsocks=y
+        CONFIG_PACKAGE_luci-app-passwall_INCLUDE_V2ray=y
+        CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y
+        CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Trojan=y
+
+        #================================
+        # 必要的内核模块
+        #================================
+        CONFIG_PACKAGE_kmod-usb-storage=y
+        CONFIG_PACKAGE_kmod-fs-ext4=y
+        CONFIG_PACKAGE_kmod-fs-ntfs=y
+        CONFIG_PACKAGE_kmod-fs-vfat=y
+        CONFIG_PACKAGE_kmod-usb3=y
+        CONFIG_PACKAGE_kmod-usb2=y
+        CONFIG_PACKAGE_kmod-tcp-bbr=y
+
+        #================================
+        # 编译设置
+        #================================
         CONFIG_DEVEL=y
         CONFIG_CCACHE=y
 
         # 内核配置
         CONFIG_KERNEL_BUILD_USER="OpenWrt"
         CONFIG_KERNEL_BUILD_DOMAIN="openwrt.org"
+        
+        # 镜像设置
+        CONFIG_TARGET_ROOTFS_PARTSIZE=512
+        CONFIG_TARGET_ROOTFS_SQUASHFS=y
+        CONFIG_GRUB_IMAGES=y
         EOF
         
-        # 运行 defconfig 来完善配置
         make defconfig
 
     #==============================================================
-    # 8. 分步构建工具链
+    # 9. 分步构建工具链
     #==============================================================
     - name: Build toolchain step by step
       run: |
         cd openwrt
-        
-        echo "=== Step 1: Build and install tools ==="
+        echo "=== Building tools ==="
         make tools/install -j$(nproc) V=s
-        
-        echo "=== Step 2: Build and install toolchain ==="
+        echo "=== Building toolchain ==="
         make toolchain/install -j$(nproc) V=s
 
     #==============================================================
-    # 9. 下载所有包（带重试）
+    # 10. 下载所有包
     #==============================================================
     - name: Download all packages
       run: |
@@ -151,21 +233,16 @@ jobs:
         done
 
     #==============================================================
-    # 10. 完整编译
+    # 11. 完整编译
     #==============================================================
     - name: Full build
       run: |
         cd openwrt
-        # 先尝试并行编译
-        if make -j$(($(nproc) + 1)); then
-          echo "Build successful with parallel compilation"
-        else
-          echo "Parallel compilation failed, retrying with verbose output"
-          make -j1 V=s
-        fi
+        # 使用适中的并行度
+        make -j$(nproc) || make -j2 V=s
 
     #==============================================================
-    # 11. 显示构建结果
+    # 12. 显示构建结果
     #==============================================================
     - name: Show build results
       if: always()
@@ -173,31 +250,30 @@ jobs:
         cd openwrt
         echo "=== Firmware files ==="
         find bin/targets/ -type f \( -name "*.img" -o -name "*.gz" -o -name "*.bin" \) 2>/dev/null | head -20 || echo "No firmware files found"
-        
         echo "=== Disk usage ==="
         df -h .
-        echo "=== Memory usage ==="
-        free -h
+        echo "=== Build directory size ==="
+        du -sh . || true
 
     #==============================================================
-    # 12. 上传固件
+    # 13. 上传固件
     #==============================================================
     - name: Upload firmware
       if: success()
       uses: actions/upload-artifact@v4
       with:
-        name: OpenWrt-x86_64-Firmware
+        name: OpenWrt-x86_64-Custom-Plugins
         path: openwrt/bin/targets/x86/64/
         retention-days: 7
 
     #==============================================================
-    # 13. 上传错误日志
+    # 14. 上传错误日志
     #==============================================================
     - name: Upload error logs
       if: failure()
       uses: actions/upload-artifact@v4
       with:
-        name: Build-Error-Logs
+        name: Build-Error-Logs-Custom
         path: |
           openwrt/build_dir/
           openwrt/logs/
