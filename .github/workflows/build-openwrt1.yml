@@ -1,11 +1,11 @@
 name: Build ImmortalWrt 24.10.4 Firmware
 
 on:
-  workflow_dispatch:  # 手动触发
+  workflow_dispatch:
   push:
     branches: [ main, master ]
   schedule:
-    - cron: '0 2 * * 0'  # 每周日凌晨2点自动编译
+    - cron: '0 2 * * 0'
 
 env:
   FIRMWARE_NAME: ImmortalWrt-24.10.4-x86-64-Custom
@@ -13,11 +13,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    
-    strategy:
-      matrix:
-        # 准备多个runner选项以防某个不可用
-        runner: [ubuntu-22.04]
 
     steps:
     - name: Check available disk space
@@ -25,7 +20,7 @@ jobs:
         echo "=== 检查磁盘空间 ==="
         df -h
         AVAILABLE_KB=$(df / --output=avail | tail -1)
-        REQUIRED_KB=50000000  # 50GB
+        REQUIRED_KB=50000000
         if [ $AVAILABLE_KB -lt $REQUIRED_KB ]; then
           echo "❌ 错误: 磁盘空间不足，需要至少50GB"
           echo "当前可用: $((AVAILABLE_KB / 1024 / 1024))GB"
@@ -44,7 +39,6 @@ jobs:
         sudo apt-get update
         sudo apt-get upgrade -y
         
-        # 基础编译工具
         sudo apt-get install -y \
           build-essential \
           ccache \
@@ -78,7 +72,6 @@ jobs:
           antlr3 \
           gcc-multilib g++-multilib
         
-        # 清理缓存节省空间
         sudo apt-get clean
         sudo rm -rf /var/lib/apt/lists/*
         
@@ -95,14 +88,12 @@ jobs:
       timeout-minutes: 10
       run: |
         echo "=== 克隆 ImmortalWrt 24.10.4 源码 ==="
-        # 使用浅层克隆节省时间和空间
         git clone https://github.com/immortalwrt/immortalwrt.git --depth=1 --branch=v24.10.4
         
         if [ $? -ne 0 ]; then
           echo "❌ 克隆失败，尝试使用master分支"
           git clone https://github.com/immortalwrt/immortalwrt.git --depth=1
           cd immortalwrt
-          # 查找24.10.4相关提交
           git fetch --tags
           LATEST_24_TAG=$(git tag -l "24.10.4*" | sort -V | tail -1)
           if [ -n "$LATEST_24_TAG" ]; then
@@ -125,7 +116,6 @@ jobs:
         echo "=== 更新和安装 feeds ==="
         cd immortalwrt
         
-        # 更新feeds，带重试机制
         for i in 1 2 3; do
           echo "尝试更新feeds (第 $i 次)..."
           ./scripts/feeds update -a
@@ -138,7 +128,6 @@ jobs:
           fi
         done
         
-        # 安装基础包
         ./scripts/feeds install -a
         
         echo "✅ feeds安装完成"
@@ -148,14 +137,12 @@ jobs:
         echo "=== 创建自定义配置 ==="
         cd immortalwrt
         
-        # 创建基础配置文件
-        cat > .config << 'EOF'
-# Target配置
+        # 使用 heredoc 创建配置文件，确保正确转义
+        cat > .config << 'EOL'
 CONFIG_TARGET_x86=y
 CONFIG_TARGET_x86_64=y
 CONFIG_TARGET_x86_64_DEVICE_generic=y
 
-# 镜像配置
 CONFIG_TARGET_ROOTFS_EXT4FS=y
 CONFIG_TARGET_ROOTFS_SQUASHFS=y
 CONFIG_TARGET_IMAGES_GZIP=y
@@ -163,13 +150,11 @@ CONFIG_VDI_IMAGES=y
 CONFIG_VMDK_IMAGES=y
 CONFIG_VHDX_IMAGES=y
 
-# 基础系统
 CONFIG_PACKAGE_block-mount=y
 CONFIG_PACKAGE_fdisk=y
 CONFIG_PACKAGE_usbutils=y
 CONFIG_PACKAGE_pciutils=y
 
-# 内核模块
 CONFIG_PACKAGE_kmod-usb-core=y
 CONFIG_PACKAGE_kmod-usb-ohci=y
 CONFIG_PACKAGE_kmod-usb-uhci=y
@@ -181,7 +166,6 @@ CONFIG_PACKAGE_kmod-fs-ext4=y
 CONFIG_PACKAGE_kmod-fs-vfat=y
 CONFIG_PACKAGE_kmod-fs-ntfs=y
 
-# 网络基础
 CONFIG_PACKAGE_dnsmasq=y
 CONFIG_PACKAGE_firewall=y
 CONFIG_PACKAGE_iptables=y
@@ -189,7 +173,6 @@ CONFIG_PACKAGE_ip6tables=y
 CONFIG_PACKAGE_ppp=y
 CONFIG_PACKAGE_ppp-mod-pppoe=y
 
-# LUCI基础
 CONFIG_PACKAGE_luci=y
 CONFIG_PACKAGE_luci-base=y
 CONFIG_PACKAGE_luci-compat=y
@@ -197,7 +180,6 @@ CONFIG_PACKAGE_luci-lib-base=y
 CONFIG_PACKAGE_luci-lib-ipkg=y
 CONFIG_PACKAGE_luci-theme-bootstrap=y
 
-# 用户所需插件
 CONFIG_PACKAGE_luci-app-adguardhome=y
 CONFIG_PACKAGE_luci-app-attendedsysupgrade=y
 CONFIG_PACKAGE_luci-app-autoupdate=y
@@ -217,7 +199,6 @@ CONFIG_PACKAGE_luci-app-wol=y
 CONFIG_PACKAGE_luci-app-zerotier=y
 CONFIG_PACKAGE_luci-theme-argon=y
 
-# 插件依赖
 CONFIG_PACKAGE_adguardhome=y
 CONFIG_PACKAGE_ddns-go=y
 CONFIG_PACKAGE_smartdns=y
@@ -228,12 +209,10 @@ CONFIG_PACKAGE_netdata=y
 CONFIG_PACKAGE_wol=y
 CONFIG_PACKAGE_miniupnpd=y
 
-# 编译优化
 CONFIG_CCACHE=y
 CONFIG_BUILD_LOG=y
-EOF
+EOL
 
-        # 检查插件是否存在，如果不存在则注释掉
         echo "检查插件可用性..."
         if ! ./scripts/feeds list | grep -q "luci-app-control-webrestriction"; then
           echo "# CONFIG_PACKAGE_luci-app-control-webrestriction 不存在" >> .config
@@ -255,10 +234,8 @@ EOF
         echo "=== 下载软件包源码 ==="
         cd immortalwrt
         
-        # 生成默认配置
         make defconfig
         
-        # 下载所有需要的包，带重试机制
         for i in 1 2 3; do
           echo "下载包文件 (第 $i 次尝试)..."
           make download -j8
@@ -270,10 +247,6 @@ EOF
             sleep 15
           fi
         done
-        
-        # 检查下载完整性
-        find dl/ -name "*.zip" -exec unzip -t {} \; > /dev/null 2>&1 || true
-        find dl/ -name "*.tar.gz" -exec tar -tzf {} > /dev/null 2>&1 \; || true
 
     - name: Build toolchain and dependencies
       timeout-minutes: 60
@@ -281,29 +254,24 @@ EOF
         echo "=== 编译工具链和依赖 ==="
         cd immortalwrt
         
-        # 编译工具链
         echo "编译工具链..."
         make toolchain/compile -j$(nproc) V=s
         
-        # 编译基础依赖
         echo "编译基础依赖..."
         make -j1 V=s 2>&1 | tee -a build-deps.log
 
     - name: Build firmware
-      timeout-minutes: 180  # 3小时超时
+      timeout-minutes: 180
       run: |
         echo "=== 编译固件 ==="
         cd immortalwrt
         
-        # 检查磁盘空间
         echo "编译前磁盘空间:"
         df -h
         
-        # 开始编译固件
         echo "开始编译固件..."
         make -j$(($(nproc) + 1)) V=s 2>&1 | tee build.log
         
-        # 检查编译结果
         echo "=== 检查编译结果 ==="
         if ls bin/targets/x86/64/*.img.gz 1> /dev/null 2>&1; then
           echo "🎉 固件编译成功!"
