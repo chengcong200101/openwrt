@@ -104,8 +104,8 @@ jobs:
         endef
 
         define Package/smartdns/install
-			$(INSTALL_DIR) $(1)/usr/bin
-			$(INSTALL_BIN) ./files/smartdns $(1)/usr/bin/
+          $(INSTALL_DIR) $(1)/usr/bin
+          $(INSTALL_BIN) ./files/smartdns $(1)/usr/bin/
         endef
 
         $(eval $(call BuildPackage,smartdns))
@@ -117,7 +117,6 @@ jobs:
     - name: Update official feeds only
       run: |
         cd openwrt
-        
         # 只更新官方 feeds，避免第三方 feeds 的问题
         ./scripts/feeds update packages
         ./scripts/feeds update luci
