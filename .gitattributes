@@ -1,0 +1,4 @@
+*.img.gz binary
+*.rootfs.tar.gz binary
+*.ipk binary
+*.bin binary
