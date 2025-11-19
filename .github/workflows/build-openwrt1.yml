@@ -52,7 +52,7 @@ jobs:
         git clone --depth=1 https://github.com/openwrt/openwrt.git -b v24.10.4 openwrt
 
     #==============================================================
-    # 4. 手动下载插件（避免有问题的 feeds）
+    # 4. 手动下载插件（修复 SmartDNS 下载问题）
     #==============================================================
     - name: Download plugins manually
       run: |
@@ -72,12 +72,44 @@ jobs:
         # Lucky
         git clone --depth=1 https://github.com/gdy666/luci-app-lucky.git
         
-        # 使用兼容性更好的 SmartDNS
-        svn export https://github.com/pymumu/openwrt-smartdns/trunk smartdns
-        svn export https://github.com/pymumu/luci-app-smartdns/trunk luci-app-smartdns
+        # SmartDNS - 使用 git clone 替代 svn
+        git clone --depth=1 https://github.com/pymumu/luci-app-smartdns.git
+        mkdir -p smartdns
+        wget https://github.com/pymumu/smartdns/releases/download/Release42/smartdns.1.2024.10.07-1028.x86_64-openwrt-all.ipk -O smartdns/smartdns.ipk || echo "SmartDNS prebuilt download failed"
         
-        # 手动下载 AdGuardHome（使用稳定版本）
-        wget https://github.com/AdguardTeam/AdGuardHome/releases/download/v0.107.54/AdGuardHome_linux_amd64.tar.gz -O AdGuardHome.tar.gz || echo "AdGuardHome download failed"
+        # 创建简单的 SmartDNS Makefile
+        cat > smartdns/Makefile << 'EOF'
+        include $(TOPDIR)/rules.mk
+
+        PKG_NAME:=smartdns
+        PKG_VERSION:=1.2024.10.07
+        PKG_RELEASE:=1
+
+        include $(INCLUDE_DIR)/package.mk
+
+        define Package/smartdns
+          SECTION:=net
+          CATEGORY:=Network
+          TITLE:=A local DNS server to obtain the fastest website IP
+          URL:=https://github.com/pymumu/smartdns
+        endef
+
+        define Package/smartdns/description
+          SmartDNS is a local DNS server which accepts DNS query requests from local clients,
+          obtains DNS query results from multiple upstream DNS servers, and returns the fastest IP to clients.
+        endef
+
+        define Build/Compile
+          # 这是一个预编译包，不需要编译
+        endef
+
+        define Package/smartdns/install
+			$(INSTALL_DIR) $(1)/usr/bin
+			$(INSTALL_BIN) ./files/smartdns $(1)/usr/bin/
+        endef
+
+        $(eval $(call BuildPackage,smartdns))
+        EOF
 
     #==============================================================
     # 5. 更新官方 feeds（跳过有问题的第三方 feeds）
